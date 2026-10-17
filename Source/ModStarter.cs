@@ -5,6 +5,7 @@ using Bindito.Core;
 using HarmonyLib;
 using Keystone.Mod.Recipes;
 using Timberborn.BlockSystem;
+using Timberborn.Coordinates;
 using Timberborn.EntitySystem;
 using Timberborn.ModManagerScene;
 using Timberborn.NaturalResources;
@@ -180,11 +181,11 @@ namespace TBKSARPatch
     [HarmonyPatch(typeof(RainbornExcavationFlag), "OnEnterFinishedState")]
     internal static class FinishedExcavationPatch
     {
-        private static void Postfix(BlockObject ___blockObject)
+        private static void Postfix(BlockObject ____blockObject)
         {
             var service = ExcavationCompatibilityService.Current;
             if (service == null) return;
-            try { service.CleanAtFlag(___blockObject, "terrain removal"); }
+            try { service.CleanAtFlag(____blockObject, "terrain removal"); }
             catch (Exception ex) { Debug.LogWarning("[TB-KS-AR] Post-excavation cleanup skipped: " + ex); }
         }
     }
@@ -192,11 +193,11 @@ namespace TBKSARPatch
     [HarmonyPatch(typeof(RainbornExcavationFlag), "OnDeleted")]
     internal static class LooseDirtPatch
     {
-        private static void Prefix(BlockObject ___blockObject)
+        private static void Prefix(BlockObject ____blockObject)
         {
             var service = ExcavationCompatibilityService.Current;
             if (service == null) return;
-            try { service.CleanAtFlag(___blockObject, "Loose Dirt placement"); }
+            try { service.CleanAtFlag(____blockObject, "Loose Dirt placement"); }
             catch (Exception ex) { Debug.LogWarning("[TB-KS-AR] Loose Dirt cleanup skipped: " + ex); }
         }
     }
