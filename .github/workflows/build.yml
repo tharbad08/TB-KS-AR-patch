@@ -14,11 +14,23 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Validate project
+      - name: Validate
         run: python3 scripts/validate.py
-      - name: Compile
+      - name: Prepare real references
+        env:
+          REFS_URL: ${{ secrets.BUILD_REFS_ZIP_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$REFS_URL" ]; then
+            echo 'Missing BUILD_REFS_ZIP_URL secret with private version-matched game/mod reference archive.' >&2
+            exit 1
+          fi
+          curl --fail --location --silent --show-error "$REFS_URL" --output "$RUNNER_TEMP/refs.zip"
+          python3 scripts/prepare_refs.py "$RUNNER_TEMP/refs.zip"
+      - name: Compile real APIs
         run: dotnet build TBKSARPatch.csproj -c Release --nologo
-      - name: Create install-ready mod
+      - name: Create installable package
         shell: bash
         run: |
           set -euo pipefail
@@ -26,16 +38,10 @@ jobs:
           mkdir -p "$ROOT/Scripts"
           cp manifest.json "$ROOT/manifest.json"
           cp bin/Release/netstandard2.1/TBKSARPatch.dll "$ROOT/Scripts/TBKSARPatch.dll"
-          test -s "$ROOT/Scripts/TBKSARPatch.dll"
-          python3 -m json.tool "$ROOT/manifest.json" >/dev/null
-          cd "$RUNNER_TEMP/package" && zip -qr "$RUNNER_TEMP/TBKSARPatch_1.1.1.zip" TBKSARPatch
-          sha256sum "$ROOT/Scripts/TBKSARPatch.dll"
-          echo 'BEGIN_TBKSAR_DLL_GZIP_B64'
-          gzip -9 -n -c "$ROOT/Scripts/TBKSARPatch.dll" | base64 -w0
-          echo
-          echo 'END_TBKSAR_DLL_GZIP_B64'
+          cd "$RUNNER_TEMP/package"
+          zip -qr "$RUNNER_TEMP/TBKSARPatch_1.1.2.zip" TBKSARPatch
       - uses: actions/upload-artifact@v4
         with:
-          name: TBKSARPatch_1.1.1
-          path: ${{ runner.temp }}/TBKSARPatch_1.1.1.zip
+          name: TBKSARPatch_1.1.2
+          path: ${{ runner.temp }}/TBKSARPatch_1.1.2.zip
           if-no-files-found: error

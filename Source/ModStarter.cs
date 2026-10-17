@@ -1,322 +1,233 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
+using AcademicsRainborn;
+using Bindito.Core;
 using HarmonyLib;
+using Keystone.Mod.Recipes;
+using Timberborn.BlockSystem;
+using Timberborn.EntitySystem;
 using Timberborn.ModManagerScene;
+using Timberborn.NaturalResources;
+using Timberborn.SingletonSystem;
+using Timberborn.TemplateSystem;
+using Timberborn.TerrainSystem;
+using UnityEngine;
 
 namespace TBKSARPatch
 {
-    // No references to MoM, Rainborn or Keystone assemblies: the target mods remain unmodified.
+    // Uses game/mod types directly. No constructor interception or runtime method discovery.
     public sealed class ModStarter : IModStarter
     {
         public void StartMod(IModEnvironment environment)
         {
-            var harmony = new Harmony("tharbad08.TBKSARPatch");
-            try
-            {
-                var flag = AccessTools.TypeByName("AcademicsRainborn.RainbornExcavationFlag");
-                var validator = AccessTools.TypeByName("Timberborn.BlockSystem.BlockValidator");
-                var blockService = AccessTools.TypeByName("Timberborn.BlockSystem.BlockService");
-                var entityService = AccessTools.TypeByName("Timberborn.EntitySystem.EntityService");
-                var terrainService = AccessTools.TypeByName("Timberborn.TerrainSystem.TerrainService");
-                var templateMapper = AccessTools.TypeByName("Timberborn.TemplateSystem.TemplateNameMapper");
-                var onFinish = AccessTools.Method(flag, "OnEnterFinishedState");
-                var onDelete = AccessTools.Method(flag, "OnDeleted");
-                var blocksValid = validator == null ? null : validator.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                    .SingleOrDefault(m => m.Name == "BlocksValid" && m.GetParameters().Length == 2 && m.ReturnType == typeof(bool));
-                if (onFinish == null || onDelete == null || blocksValid == null || blockService == null || entityService == null || terrainService == null || templateMapper == null)
-                {
-                    Log.Warn("Timberborn/Rainborn API mismatch: patch not activated (no partial patching).");
-                    return;
-                }
-                // Capture the game services in the scene where they are created, not from a previous save.
-                Capture(harmony, blockService, nameof(ServiceCapture.BlockService));
-                Capture(harmony, entityService, nameof(ServiceCapture.EntityService));
-                Capture(harmony, terrainService, nameof(ServiceCapture.TerrainService));
-                Capture(harmony, templateMapper, nameof(ServiceCapture.TemplateMapper));
-                harmony.Patch(onFinish, postfix: new HarmonyMethod(typeof(ExcavationPatches), nameof(ExcavationPatches.AfterTerrainRemoval)));
-                harmony.Patch(onDelete, prefix: new HarmonyMethod(typeof(ExcavationPatches), nameof(ExcavationPatches.BeforeLooseDirt)));
-                harmony.Patch(blocksValid, postfix: new HarmonyMethod(typeof(ExcavationPatches), nameof(ExcavationPatches.ValidateRainbornPlacement)));
-                Log.Info("Active: vanilla dynamite-compatible excavation constraints and safe natural-resource cleanup.");
-            }
-            catch (Exception e) { Log.Warn("Patch activation failed: " + e); }
-        }
-        private static void Capture(Harmony harmony, Type type, string target)
-        {
-            foreach (var ctor in type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
-                harmony.Patch(ctor, postfix: new HarmonyMethod(typeof(ServiceCapture), target));
+            new Harmony("tharbad08.TBKSARPatch").PatchAll(typeof(ModStarter).Assembly);
+            Debug.Log("[TB-KS-AR] v1.1.2 typed compatibility hooks installed.");
         }
     }
 
-    internal static class ServiceCapture
+    [Context("Game")]
+    public sealed class GameConfigurator : IConfigurator
     {
-        internal static object Blocks;
-        internal static object Entities;
-        internal static object Terrain;
-        internal static object Mapper;
-        internal static void BlockService(object __instance) { Blocks = __instance; }
-        internal static void EntityService(object __instance) { Entities = __instance; }
-        internal static void TerrainService(object __instance) { Terrain = __instance; }
-        internal static void TemplateMapper(object __instance) { Mapper = __instance; }
+        public void Configure(IContainerDefinition container)
+        {
+            container.Bind<ExcavationCompatibilityService>().AsSingleton();
+        }
     }
 
-    internal static class Log
+    // Bindito constructs this once per game scene; state is cleared when that scene unloads.
+    public sealed class ExcavationCompatibilityService : ILoadableSingleton, IUnloadableSingleton
     {
-        private static MethodInfo _info, _warn;
-        private static void Write(string msg, bool warning)
-        {
-            try
-            {
-                var method = warning ? _warn : _info;
-                if (method == null)
-                {
-                    var debug = AccessTools.TypeByName("UnityEngine.Debug");
-                    method = debug?.GetMethod(warning ? "LogWarning" : "Log", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(object) }, null);
-                    if (warning) _warn = method; else _info = method;
-                }
-                method?.Invoke(null, new object[] { "[TB-KS-AR] " + msg });
-            }
-            catch { /* Logging must never break the simulation. */ }
-        }
-        internal static void Info(string s) { Write(s, false); }
-        internal static void Warn(string s) { Write(s, true); }
-    }
+        internal static ExcavationCompatibilityService Current { get; private set; }
 
-    internal static class ExcavationPatches
-    {
-        private static bool _warnedMissingServices, _warnedDynamite, _warnedPlacement;
-        private static int _removed;
-        // Called AFTER Rainborn's native one-block UnsetTerrain. This method must not re-run UnsetTerrain.
-        internal static void AfterTerrainRemoval(object __instance)
+        private readonly IBlockService _blocks;
+        private readonly ITerrainService _terrain;
+        private readonly EntityService _entities;
+        private readonly TemplateNameMapper _templates;
+        private BlockObjectSpec _flagSpec;
+        private BlockObjectSpec _dynamiteSpec;
+        private int _removed;
+        private bool _warnedMissingFlag;
+
+        [ThreadStatic] private static bool _cleaning;
+
+        public ExcavationCompatibilityService(
+            IBlockService blocks, ITerrainService terrain, EntityService entities,
+            TemplateNameMapper templates)
         {
-            try { CleanAtFlag(__instance, "terrain removal"); }
-            catch (Exception ex) { Log.Warn("Post-excavation cleanup skipped: " + ex); }
-        }
-        // Rainborn's OnDeleted checks BlocksValid before constructing Loose Dirt; remove
-        // freshly spawned flora/rocks before that check, but never delete player buildings.
-        internal static void BeforeLooseDirt(object __instance)
-        {
-            try { CleanAtFlag(__instance, "Loose Dirt placement"); }
-            catch (Exception ex) { Log.Warn("Loose Dirt pre-check cleanup skipped: " + ex); }
+            _blocks = blocks;
+            _terrain = terrain;
+            _entities = entities;
+            _templates = templates;
         }
 
-        internal static void ValidateRainbornPlacement(object __0, object __1, ref bool __result, object __instance)
+        public void Load()
         {
-            if (!__result) return;
-            try
+            _removed = 0;
+            _flagSpec = ResolveSpec("RainbornExcavationFlag",
+                "RainbornExcavationFlag.Folktails", "RainbornExcavationFlag.IronTeeth");
+            _dynamiteSpec = ResolveSpec("Dynamite", "Dynamite.Folktails", "Dynamite.IronTeeth");
+            Current = this;
+            if (_flagSpec == null)
+                Debug.LogWarning("[TB-KS-AR] Rainborn flag template not resolved; additional placement restrictions disabled, cleanup remains active.");
+        }
+
+        public void Unload()
+        {
+            if (ReferenceEquals(Current, this)) Current = null;
+            _flagSpec = null;
+            _dynamiteSpec = null;
+        }
+
+        private BlockObjectSpec ResolveSpec(params string[] names)
+        {
+            foreach (var name in names)
             {
-                if (!R.IsRainbornFlagTemplate(__1)) return;
-                // Match the actual vanilla Dynamite template's block-occupancy validator;
-                // then additionally enforce its one-layer digging constraints.
-                var place = __0;
-                var pos = R.PositionOfPlacement(place);
-                if (pos == null || !R.CanExcavateTerrain(pos))
+                // The template mapper is a typed game API; alternatives may not exist in one faction.
+                try
                 {
-                    __result = false;
-                    return;
-                }
-                var dyn = R.GetDynamiteTemplate();
-                if (dyn != null)
-                {
-                    var method = __instance.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                        .SingleOrDefault(m => m.Name == "BlocksValid" && m.GetParameters().Length == 2 &&
-                            m.GetParameters()[1].ParameterType.IsInstanceOfType(dyn));
-                    if (method != null)
+                    var template = _templates.GetTemplate(name);
+                    if (template != null)
                     {
-                        // Re-enters this postfix for vanilla Dynamite, which isn't a Rainborn flag.
-                        __result = (bool)method.Invoke(__instance, new[] { place, dyn });
-                    }
-                    else if (!_warnedPlacement)
-                    {
-                        _warnedPlacement = true;
-                        Log.Warn("Vanilla Dynamite occupancy validator could not be resolved; using terrain check only.");
+                        var candidate = template.Blueprint.GetSpec<BlockObjectSpec>();
+                        if (candidate != null) return candidate;
                     }
                 }
-                else if (!_warnedDynamite)
-                {
-                    _warnedDynamite = true;
-                    Log.Warn("Vanilla Dynamite template not found; using terrain check only.");
-                }
+                catch (Exception) { /* That template name is absent in this faction. */ }
             }
+            return null;
+        }
+
+        internal bool IsRainbornSpec(BlockObjectSpec candidate)
+        {
+            // Never guess from a ToString or a class name. A mismatched spec is not patched.
+            if (_flagSpec != null) return ReferenceEquals(candidate, _flagSpec);
+            if (!_warnedMissingFlag)
+            {
+                _warnedMissingFlag = true;
+                Debug.LogWarning("[TB-KS-AR] Placement parity cannot be enforced until Rainborn flag template resolves.");
+            }
+            return false;
+        }
+
+        internal bool ValidPlacement(BlockValidator validator, Placement placement)
+        {
+            var cell = placement.Coordinates;
+            if (cell.z <= 0 || !_terrain.Contains(cell)) return false;
+            var below = new Vector3Int(cell.x, cell.y, cell.z - 1);
+            if (!_terrain.Underground(below)) return false;
+
+            // Calling the normal validator preserves vanilla dynamite's occupancy rules.
+            // Harmony's postfix skips this nested call using the thread-local guard below.
+            return _dynamiteSpec == null || validator.BlocksValid(_dynamiteSpec, placement);
+        }
+
+        internal void CleanAtFlag(BlockObject flag, string stage)
+        {
+            if (flag == null || _cleaning) return;
+            _cleaning = true;
+            try
+            {
+                var cell = flag.Coordinates;
+                if (cell.z <= 0 || !TerrainAbsentBelow(cell)) return;
+                var above = new Vector3Int(cell.x, cell.y, cell.z + 1);
+                var count = 0;
+                foreach (var pos in new[] { cell, above })
+                {
+                    if (!_terrain.Contains(pos)) continue;
+                    // Snapshot first: Delete() may update the underlying game collection.
+                    foreach (var candidate in _blocks.GetObjectsAt(pos).ToArray())
+                    {
+                        if (candidate == null || ReferenceEquals(candidate, flag)) continue;
+                        if (candidate.GetComponent<NaturalResource>() == null &&
+                            candidate.GetComponent<KeystoneVariant>() == null) continue;
+                        if (!IsGroundDependentAt(candidate, pos) || !TerrainAbsentBelow(pos)) continue;
+                        try
+                        {
+                            _entities.Delete(candidate);
+                            count++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.LogWarning("[TB-KS-AR] Natural-resource deletion failed: " + ex);
+                        }
+                    }
+                }
+                _removed += count;
+                if (count > 0 && (_removed <= 10 || _removed % 50 == 0))
+                    Debug.Log("[TB-KS-AR] Removed " + count + " unsupported natural resources during " +
+                        stage + "; total=" + _removed);
+            }
+            finally { _cleaning = false; }
+        }
+
+        private bool TerrainAbsentBelow(Vector3Int pos)
+        {
+            if (pos.z <= 0) return false;
+            var below = new Vector3Int(pos.x, pos.y, pos.z - 1);
+            return _terrain.Contains(below) && !_terrain.Underground(below);
+        }
+
+        private static bool IsGroundDependentAt(BlockObject obj, Vector3Int pos)
+        {
+            var matter = obj.PositionedBlocks.GetBlock(pos).MatterBelow;
+            return matter == MatterBelow.Ground || matter == MatterBelow.GroundOrStackable;
+        }
+    }
+
+    // Justified Harmony boundary: these two lifecycle methods belong to Rainborn.
+    // The private _blockObject is supplied through Harmony's named field injection.
+    // No reflection is performed by our callback.
+    [HarmonyPatch(typeof(RainbornExcavationFlag), "OnEnterFinishedState")]
+    internal static class FinishedExcavationPatch
+    {
+        private static void Postfix(BlockObject ___blockObject)
+        {
+            var service = ExcavationCompatibilityService.Current;
+            if (service == null) return;
+            try { service.CleanAtFlag(___blockObject, "terrain removal"); }
+            catch (Exception ex) { Debug.LogWarning("[TB-KS-AR] Post-excavation cleanup skipped: " + ex); }
+        }
+    }
+
+    [HarmonyPatch(typeof(RainbornExcavationFlag), "OnDeleted")]
+    internal static class LooseDirtPatch
+    {
+        private static void Prefix(BlockObject ___blockObject)
+        {
+            var service = ExcavationCompatibilityService.Current;
+            if (service == null) return;
+            try { service.CleanAtFlag(___blockObject, "Loose Dirt placement"); }
+            catch (Exception ex) { Debug.LogWarning("[TB-KS-AR] Loose Dirt cleanup skipped: " + ex); }
+        }
+    }
+
+    // Target the typed two-argument overload. A thread-local guard stops nested validation,
+    // including if another mod also invokes the same game method.
+    [HarmonyPatch(typeof(BlockValidator), nameof(BlockValidator.BlocksValid),
+        new[] { typeof(BlockObjectSpec), typeof(Placement) })]
+    internal static class RainbornPlacementPatch
+    {
+        [ThreadStatic] private static bool _checking;
+        private static bool _warned;
+
+        private static void Postfix(BlockValidator __instance, BlockObjectSpec __0,
+            Placement __1, ref bool __result)
+        {
+            if (!__result || _checking) return;
+            var service = ExcavationCompatibilityService.Current;
+            if (service == null || !service.IsRainbornSpec(__0)) return;
+            _checking = true;
+            try { __result = service.ValidPlacement(__instance, __1); }
             catch (Exception ex)
             {
-                // Fail CLOSED for mod-specific placement if our extra validation fails;
-                // do not permit digging into terrain with unknown restrictions.
-                __result = false;
-                Log.Warn("Rainborn flag placement check failed safely: " + ex);
-            }
-        }
-
-        private static void CleanAtFlag(object flag, string stage)
-        {
-            var block = R.Member(flag, "_blockObject");
-            var pos = R.Member(block, "Coordinates");
-            if (pos == null) return;
-            if (ServiceCapture.Blocks == null || ServiceCapture.Entities == null || ServiceCapture.Terrain == null)
-            {
-                if (!_warnedMissingServices) { _warnedMissingServices = true; Log.Warn("Game services unavailable; skipped one excavation cleanup."); }
-                return;
-            }
-            // Rainborn destroys only ONE terrain voxel. Do not clean if ground remains.
-            if (!R.IsTerrainAbsentBelow(pos)) return;
-            int removedNow = 0;
-            // Both the flag/Loose Dirt cell and the cell immediately above can contain
-            // natural resources with their foot on the removed terrain. Check exact support.
-            foreach (var coord in new[] { pos, R.ShiftZ(pos, 1) })
-            {
-                if (coord == null) continue;
-                foreach (var obj in R.ObjectsAt(coord))
+                __result = false; // Never allow unsafe terrain digging on a compatibility failure.
+                if (!_warned)
                 {
-                    if (obj == null || ReferenceEquals(obj, block)) continue;
-                    if (!R.IsNaturalDecoration(obj) || !R.IsGroundDependentAt(obj, coord)) continue;
-                    if (!R.IsTerrainAbsentBelow(coord)) continue;
-                    if (R.DeleteEntity(obj)) removedNow++;
+                    _warned = true;
+                    Debug.LogWarning("[TB-KS-AR] Rainborn placement validation failed (further errors suppressed): " + ex);
                 }
             }
-            if (removedNow > 0)
-            {
-                _removed += removedNow;
-                if (_removed <= 10 || _removed % 50 == 0)
-                    Log.Info("Removed " + removedNow + " unsupported natural decoration(s) at " + stage + ". Total " + _removed);
-            }
-        }
-    }
-
-    // Reflection only where a third-party API boundary requires it; no guessed game method signatures
-    // and no runtime dependency on MoM. All queried public member names below were checked
-    // against the user's installed Timberborn 1.1 and Rainborn 0.2.0.4 binaries.
-    internal static class R
-    {
-        private static Type _rainSpec, _natural, _keystone, _templateSpec;
-        private static Type Type(string fullname) => AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(fullname, false)).FirstOrDefault(t => t != null);
-        internal static object Member(object obj, string name)
-        {
-            if (obj == null) return null;
-            var t = obj.GetType();
-            for (var curr = t; curr != null; curr = curr.BaseType)
-            {
-                var f = curr.GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                if (f != null) return f.GetValue(obj);
-                var p = curr.GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                if (p != null) return p.GetValue(obj, null);
-            }
-            return null;
-        }
-        private static object Call(object target, string name, params object[] args)
-        {
-            if (target == null) return null;
-            var methods = target.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            var method = methods.FirstOrDefault(m => m.Name == name && !m.ContainsGenericParameters &&
-                m.GetParameters().Length == args.Length && m.GetParameters().Select((p, i) => args[i] == null || p.ParameterType.IsInstanceOfType(args[i])).All(x => x));
-            return method?.Invoke(target, args);
-        }
-        private static object Component(object bo, Type type)
-        {
-            if (bo == null || type == null) return null;
-            var m = bo.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .FirstOrDefault(q => q.Name == "GetComponent" && q.IsGenericMethodDefinition && q.GetParameters().Length == 0);
-            return m?.MakeGenericMethod(type).Invoke(bo, null);
-        }
-        private static object Spec(object template, Type type)
-        {
-            if (template == null || type == null) return null;
-            var m = template.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .FirstOrDefault(q => q.Name == "GetSpec" && q.IsGenericMethodDefinition && q.GetParameters().Length == 0);
-            return m?.MakeGenericMethod(type).Invoke(template, null);
-        }
-        internal static bool IsRainbornFlagTemplate(object template)
-        {
-            if (template == null) return false;
-            if (_rainSpec == null) _rainSpec = Type("AcademicsRainborn.RainbornExcavationFlagSpec");
-            try { if (Spec(template, _rainSpec) != null) return true; } catch { }
-            // Fallback on the game-provided TemplateSpec rather than a guessed ToString.
-            if (_templateSpec == null) _templateSpec = Type("Timberborn.TemplateSystem.TemplateSpec");
-            try
-            {
-                var name = Member(Spec(template, _templateSpec), "TemplateName") as string;
-                return name != null && name.IndexOf("RainbornExcavationFlag", StringComparison.OrdinalIgnoreCase) >= 0;
-            }
-            catch { return false; }
-        }
-        internal static object GetDynamiteTemplate()
-        {
-            foreach (var name in new[] { "Dynamite", "Dynamite.Folktails", "Dynamite.IronTeeth" })
-            {
-                try { var template = Call(ServiceCapture.Mapper, "GetTemplate", name); if (template != null) return template; }
-                catch { /* Alternative template name may be absent for a faction. */ }
-            }
-            return null;
-        }
-        internal static object PositionOfPlacement(object placement)
-        {
-            return Member(placement, "Coordinates") ?? Member(placement, "Position");
-        }
-        private static int? Coordinate(object obj, string axis)
-        {
-            var val = Member(obj, axis); return val == null ? (int?)null : Convert.ToInt32(val);
-        }
-        internal static object ShiftZ(object coords, int delta)
-        {
-            if (coords == null) return null;
-            var x = Coordinate(coords, "x"); var y = Coordinate(coords, "y"); var z = Coordinate(coords, "z");
-            if (!x.HasValue || !y.HasValue || !z.HasValue) return null;
-            return Activator.CreateInstance(coords.GetType(), x.Value, y.Value, z.Value + delta);
-        }
-        internal static bool IsTerrainAbsentBelow(object cell)
-        {
-            var below = ShiftZ(cell, -1);
-            if (below == null) return false;
-            try { return !(bool)Call(ServiceCapture.Terrain, "Underground", below); }
-            catch { return false; }
-        }
-        internal static bool CanExcavateTerrain(object flagCell)
-        {
-            var z = Coordinate(flagCell, "z");
-            if (!z.HasValue || z.Value <= 0) return false; // vanilla dynamite: not on lowest terrain level
-            var below = ShiftZ(flagCell, -1);
-            if (below == null || ServiceCapture.Terrain == null) return false;
-            try { return (bool)Call(ServiceCapture.Terrain, "Underground", below); }
-            catch { return false; }
-        }
-        internal static object[] ObjectsAt(object pos)
-        {
-            try { return (Call(ServiceCapture.Blocks, "GetObjectsAt", pos) as IEnumerable)?.Cast<object>().ToArray() ?? Array.Empty<object>(); }
-            catch { return Array.Empty<object>(); }
-        }
-        internal static bool IsNaturalDecoration(object bo)
-        {
-            if (_natural == null) _natural = Type("Timberborn.NaturalResources.NaturalResource");
-            if (_keystone == null) _keystone = Type("Keystone.Mod.Recipes.KeystoneVariant");
-            try { return Component(bo, _natural) != null || Component(bo, _keystone) != null; }
-            catch { return false; }
-        }
-        internal static bool IsGroundDependentAt(object bo, object coord)
-        {
-            try
-            {
-                var positioned = Member(bo, "PositionedBlocks");
-                var block = Call(positioned, "GetBlock", coord);
-                var below = Member(block, "MatterBelow");
-                var name = below?.ToString();
-                return name == "Ground" || name == "GroundOrStackable";
-            }
-            catch { return false; }
-        }
-        internal static bool DeleteEntity(object obj)
-        {
-            try
-            {
-                var service = ServiceCapture.Entities;
-                var method = service.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                    .FirstOrDefault(m => m.Name == "Delete" && m.GetParameters().Length == 1 &&
-                        m.GetParameters()[0].ParameterType.IsAssignableFrom(obj.GetType()));
-                if (method == null) return false;
-                method.Invoke(service, new[] { obj });
-                return true;
-            }
-            catch (Exception ex) { Log.Warn("Decoration cleanup failed safely: " + ex.Message); return false; }
+            finally { _checking = false; }
         }
     }
 }
