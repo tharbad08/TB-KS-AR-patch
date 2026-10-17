@@ -12,13 +12,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Source/*.cs" />
-    <ReferenceDll Include="refs/*.dll" />
-    <Reference Include="%(ReferenceDll.Filename)">
-      <HintPath>%(ReferenceDll.FullPath)</HintPath>
-      <Private>false</Private>
-    </Reference>
   </ItemGroup>
+  <Import Project="refs/ReferenceAssemblies.props" Condition="Exists('refs/ReferenceAssemblies.props')" />
   <Target Name="RequireRealReferences" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('refs/Timberborn.BlockSystem.dll') Or !Exists('refs/AcademicsRainborn.dll') Or !Exists('refs/Code.dll') Or !Exists('refs/0Harmony.dll')" Text="Run python3 scripts/prepare_refs.py /path/to/your/reference.zip first. Genuine game/mod DLLs required." />
+    <Error Condition="!Exists('refs/Timberborn.BlockSystem.dll') Or !Exists('refs/AcademicsRainborn.dll') Or !Exists('refs/Code.dll') Or !Exists('refs/0Harmony.dll') Or !Exists('refs/ReferenceAssemblies.props')" Text="Run python3 scripts/prepare_refs.py /path/to/your/reference.zip first. Genuine game/mod DLLs required." />
   </Target>
 </Project>
