@@ -1,3 +1,31 @@
 {
-"Name":"Keystone - Academic's Rainborn Excavation Patch","Id":"tharbad08.TBKSARPatch","Version":"1.1.2","MinimumGameVersion":"1.1.0.0","Description":"Typed Rainborn Keystone excavation compatibility with safe natural decoration cleanup and guarded validation.","RequiredMods":[{"Id":"Harmony","MinimumVersion":"2.4.1.0"},{"Id":"academicunwinds.Rainborn","MinimumVersion":"0.2.0.4"},{"Id":"SylvanGames.Keystone","MinimumVersion":"1.3.3.0"}],"OptionalMods":[{"Id":"TimberUi","MinimumVersion":"10.1.5"},{"Id":"eMka.ModSettings","MinimumVersion":"1.0.13.0"}]
+  "Name": "Keystone - Academic's Rainborn Excavation Patch",
+  "Id": "tharbad08.TBKSARPatch",
+  "Version": "1.1.2",
+  "MinimumGameVersion": "1.1.0.0",
+  "Description": "Typed Rainborn Keystone excavation compatibility with safe natural decoration cleanup and guarded validation.",
+  "RequiredMods": [
+    {
+      "Id": "Harmony",
+      "MinimumVersion": "2.4.1.0"
+    },
+    {
+      "Id": "academicunwinds.Rainborn",
+      "MinimumVersion": "0.2.0.4"
+    },
+    {
+      "Id": "SylvanGames.Keystone",
+      "MinimumVersion": "1.3.3.0"
+    }
+  ],
+  "OptionalMods": [
+    {
+      "Id": "TimberUi",
+      "MinimumVersion": "10.1.5"
+    },
+    {
+      "Id": "eMka.ModSettings",
+      "MinimumVersion": "1.0.13.0"
+    }
+  ]
 }
