@@ -13,8 +13,8 @@
   <ItemGroup>
     <Compile Include="Source/*.cs" />
     <ReferenceDll Include="refs/*.dll" />
-    <Reference Include="@(ReferenceDll->'%(Filename)')">
-      <HintPath>refs/%(Filename)%(Extension)</HintPath>
+    <Reference Include="%(ReferenceDll.Filename)">
+      <HintPath>%(ReferenceDll.FullPath)</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
