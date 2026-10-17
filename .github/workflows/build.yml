@@ -1,4 +1,4 @@
-name: Build KS-AR Patch
+name: Validate KS-AR Patch
 on:
   push:
     branches: [main]
@@ -7,41 +7,12 @@ on:
 permissions:
   contents: read
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Validate
+      - name: Validate invariants without proprietary assemblies
         run: python3 scripts/validate.py
-      - name: Prepare real references
-        env:
-          REFS_URL: ${{ secrets.BUILD_REFS_ZIP_URL }}
-        shell: bash
+      - name: Explain local verified-build procedure
         run: |
-          set -euo pipefail
-          if [ -z "$REFS_URL" ]; then
-            echo 'Missing BUILD_REFS_ZIP_URL secret with private version-matched game/mod reference archive.' >&2
-            exit 1
-          fi
-          curl --fail --location --silent --show-error "$REFS_URL" --output "$RUNNER_TEMP/refs.zip"
-          python3 scripts/prepare_refs.py "$RUNNER_TEMP/refs.zip"
-      - name: Compile real APIs
-        run: dotnet build TBKSARPatch.csproj -c Release --nologo
-      - name: Create installable package
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$RUNNER_TEMP/package/TBKSARPatch/version-1.1"
-          mkdir -p "$ROOT/Scripts"
-          cp manifest.json "$ROOT/manifest.json"
-          cp bin/Release/netstandard2.1/TBKSARPatch.dll "$ROOT/Scripts/TBKSARPatch.dll"
-          cd "$RUNNER_TEMP/package"
-          zip -qr "$RUNNER_TEMP/TBKSARPatch_1.1.2.zip" TBKSARPatch
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TBKSARPatch_1.1.2
-          path: ${{ runner.temp }}/TBKSARPatch_1.1.2.zip
-          if-no-files-found: error
+          echo "Builds require genuine game/mod DLLs kept outside GitHub. Run scripts/build-local.sh /path/to/build-refs.zip on a machine with .NET 8 SDK."
