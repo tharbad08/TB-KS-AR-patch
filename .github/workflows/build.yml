@@ -1,0 +1,41 @@
+name: Build KS-AR Patch
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Validate project
+        run: python3 scripts/validate.py
+      - name: Compile
+        run: dotnet build TBKSARPatch.csproj -c Release --nologo
+      - name: Create install-ready mod
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/package/TBKSARPatch/version-1.1"
+          mkdir -p "$ROOT/Scripts"
+          cp manifest.json "$ROOT/manifest.json"
+          cp bin/Release/netstandard2.1/TBKSARPatch.dll "$ROOT/Scripts/TBKSARPatch.dll"
+          test -s "$ROOT/Scripts/TBKSARPatch.dll"
+          python3 -m json.tool "$ROOT/manifest.json" >/dev/null
+          cd "$RUNNER_TEMP/package" && zip -qr "$RUNNER_TEMP/TBKSARPatch_1.1.1.zip" TBKSARPatch
+          sha256sum "$ROOT/Scripts/TBKSARPatch.dll"
+          echo 'BEGIN_TBKSAR_DLL_GZIP_B64'
+          gzip -9 -n -c "$ROOT/Scripts/TBKSARPatch.dll" | base64 -w0
+          echo
+          echo 'END_TBKSAR_DLL_GZIP_B64'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TBKSARPatch_1.1.1
+          path: ${{ runner.temp }}/TBKSARPatch_1.1.1.zip
+          if-no-files-found: error
