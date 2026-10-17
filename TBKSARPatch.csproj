@@ -8,25 +8,17 @@
     <AssemblyName>TBKSARPatch</AssemblyName>
     <RootNamespace>TBKSARPatch</RootNamespace>
     <Version>1.1.2</Version>
+    <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Source/*.cs" />
-    <PackageReference Include="Lib.Harmony" Version="2.4.1" />
-    <Reference Include="Timberborn.ModManagerScene"><HintPath>refs/Timberborn.ModManagerScene.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.BlockSystem"><HintPath>refs/Timberborn.BlockSystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.TerrainSystem"><HintPath>refs/Timberborn.TerrainSystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.EntitySystem"><HintPath>refs/Timberborn.EntitySystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.NaturalResources"><HintPath>refs/Timberborn.NaturalResources.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.TemplateSystem"><HintPath>refs/Timberborn.TemplateSystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.BlueprintSystem"><HintPath>refs/Timberborn.BlueprintSystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Timberborn.BaseComponentSystem"><HintPath>refs/Timberborn.BaseComponentSystem.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Bindito.Core"><HintPath>refs/Bindito.Core.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="UnityEngine.CoreModule"><HintPath>refs/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="AcademicsRainborn"><HintPath>refs/AcademicsRainborn.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Keystone.Core"><HintPath>refs/Keystone.Core.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="Code"><HintPath>refs/Code.dll</HintPath><Private>false</Private></Reference>
+    <ReferenceDll Include="refs/*.dll" />
+    <Reference Include="@(ReferenceDll->'%(Filename)')">
+      <HintPath>refs/%(Filename)%(Extension)</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
-  <Target Name="RequireActualGameReferences" BeforeTargets="ResolveReferences">
-    <Error Condition="!Exists('refs/Timberborn.BlockSystem.dll') Or !Exists('refs/AcademicsRainborn.dll') Or !Exists('refs/Code.dll')" Text="Missing genuine game/mod references. Run python3 scripts/prepare_refs.py with your local reference archive." />
+  <Target Name="RequireRealReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('refs/Timberborn.BlockSystem.dll') Or !Exists('refs/AcademicsRainborn.dll') Or !Exists('refs/Code.dll') Or !Exists('refs/0Harmony.dll')" Text="Run python3 scripts/prepare_refs.py /path/to/your/reference.zip first. Genuine game/mod DLLs required." />
   </Target>
 </Project>
