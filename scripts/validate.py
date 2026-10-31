@@ -3,9 +3,11 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 m = json.loads((root / "manifest.json").read_text())
 s = (root / "Source/ModStarter.cs").read_text()
-assert m["Version"] == "1.1.2"
+assert m["Version"] == "1.1.3"
 assert m["Id"] == "tharbad08.TBKSARPatch"
-assert "RainbornExcavationFlag" in s
+assert "GetSpecs<RainbornExcavationFlagSpec>()" in s
+assert "_flagSpecs.Contains(candidate)" in s
+assert 'ResolveSpec("Rainborn' not in s
 assert "OnEnterFinishedState" in s and "OnDeleted" in s
 assert "[Context(\"Game\")]" in s
 assert "[ThreadStatic]" in s
