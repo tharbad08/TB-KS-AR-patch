@@ -1,9 +1,9 @@
 {
   "Name": "Keystone - Academic's Rainborn Excavation Patch",
   "Id": "tharbad08.TBKSARPatch",
-  "Version": "1.1.2",
+  "Version": "1.1.3",
   "MinimumGameVersion": "1.1.0.0",
-  "Description": "Typed Rainborn Keystone excavation compatibility with safe natural decoration cleanup and guarded validation.",
+  "Description": "Typed Rainborn excavation flag discovery, dynamite placement parity and safe Keystone natural-resource cleanup.",
   "RequiredMods": [
     {
       "Id": "Harmony",
