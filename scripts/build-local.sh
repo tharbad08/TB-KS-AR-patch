@@ -16,8 +16,8 @@ outdir="dist/TBKSARPatch/version-1.1"
 mkdir -p "$outdir/Scripts"
 cp manifest.json "$outdir/manifest.json"
 cp bin/Release/netstandard2.1/TBKSARPatch.dll "$outdir/Scripts/TBKSARPatch.dll"
-(cd dist && zip -qr -FS TBKSARPatch_1.1.2.zip TBKSARPatch)
-if unzip -Z1 dist/TBKSARPatch_1.1.2.zip | grep -E '(^|/)(refs|0Harmony|Code|Keystone\.Core|AcademicsRainborn)\.dll$'; then
+(cd dist && zip -qr -FS TBKSARPatch_1.1.3.zip TBKSARPatch)
+if unzip -Z1 dist/TBKSARPatch_1.1.3.zip | grep -E '(^|/)(refs|0Harmony|Code|Keystone\.Core|AcademicsRainborn)\.dll$'; then
   echo "ERROR: package contains third-party DLLs" >&2; exit 1
 fi
-echo "Installable mod: $(pwd)/dist/TBKSARPatch_1.1.2.zip"
+echo "Installable mod: $(pwd)/dist/TBKSARPatch_1.1.3.zip"
