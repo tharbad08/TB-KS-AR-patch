@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using AcademicsRainborn;
 using Bindito.Core;
 using HarmonyLib;
 using Keystone.Mod.Recipes;
 using Timberborn.BlockSystem;
+using Timberborn.BlueprintSystem;
 using Timberborn.Coordinates;
 using Timberborn.EntitySystem;
 using Timberborn.ModManagerScene;
@@ -22,7 +24,7 @@ namespace TBKSARPatch
         public void StartMod(IModEnvironment environment)
         {
             new Harmony("tharbad08.TBKSARPatch").PatchAll(typeof(ModStarter).Assembly);
-            Debug.Log("[TB-KS-AR] v1.1.2 typed compatibility hooks installed.");
+            Debug.Log("[TB-KS-AR] v1.1.3 typed compatibility hooks installed.");
         }
     }
 
@@ -44,7 +46,8 @@ namespace TBKSARPatch
         private readonly ITerrainService _terrain;
         private readonly EntityService _entities;
         private readonly TemplateNameMapper _templates;
-        private BlockObjectSpec _flagSpec;
+        private readonly ISpecService _specs;
+        private readonly HashSet<BlockObjectSpec> _flagSpecs = new HashSet<BlockObjectSpec>();
         private BlockObjectSpec _dynamiteSpec;
         private int _removed;
         private bool _warnedMissingFlag;
@@ -53,29 +56,44 @@ namespace TBKSARPatch
 
         public ExcavationCompatibilityService(
             IBlockService blocks, ITerrainService terrain, EntityService entities,
-            TemplateNameMapper templates)
+            TemplateNameMapper templates, ISpecService specs)
         {
             _blocks = blocks;
             _terrain = terrain;
             _entities = entities;
             _templates = templates;
+            _specs = specs;
         }
 
         public void Load()
         {
             _removed = 0;
-            _flagSpec = ResolveSpec("RainbornExcavationFlag",
-                "RainbornExcavationFlag.Folktails", "RainbornExcavationFlag.IronTeeth");
+            _warnedMissingFlag = false;
+            _flagSpecs.Clear();
+
+            // Rainborn registers a typed marker spec on each excavation flag blueprint.
+            // Discover all variants from the actual loaded specs rather than guessing
+            // template names; this works with faction-specific and renamed flags.
+            foreach (var marker in _specs.GetSpecs<RainbornExcavationFlagSpec>())
+            {
+                var flag = marker.GetSpec<BlockObjectSpec>();
+                if (flag != null)
+                    _flagSpecs.Add(flag);
+            }
+
             _dynamiteSpec = ResolveSpec("Dynamite", "Dynamite.Folktails", "Dynamite.IronTeeth");
             Current = this;
-            if (_flagSpec == null)
-                Debug.LogWarning("[TB-KS-AR] Rainborn flag template not resolved; additional placement restrictions disabled, cleanup remains active.");
+            if (_flagSpecs.Count == 0)
+                Debug.LogWarning("[TB-KS-AR] No Rainborn excavation marker specs found; placement parity disabled, cleanup remains active.");
+            else
+                Debug.Log("[TB-KS-AR] Placement parity active for " + _flagSpecs.Count +
+                    " Rainborn excavation flag blueprint(s).");
         }
 
         public void Unload()
         {
             if (ReferenceEquals(Current, this)) Current = null;
-            _flagSpec = null;
+            _flagSpecs.Clear();
             _dynamiteSpec = null;
         }
 
@@ -100,12 +118,12 @@ namespace TBKSARPatch
 
         internal bool IsRainbornSpec(BlockObjectSpec candidate)
         {
-            // Never guess from a ToString or a class name. A mismatched spec is not patched.
-            if (_flagSpec != null) return ReferenceEquals(candidate, _flagSpec);
+            // Only specs carrying Rainborn's typed marker are affected.
+            if (_flagSpecs.Count != 0) return _flagSpecs.Contains(candidate);
             if (!_warnedMissingFlag)
             {
                 _warnedMissingFlag = true;
-                Debug.LogWarning("[TB-KS-AR] Placement parity cannot be enforced until Rainborn flag template resolves.");
+                Debug.LogWarning("[TB-KS-AR] Placement parity unavailable: no Rainborn excavation flag specs were loaded.");
             }
             return false;
         }
