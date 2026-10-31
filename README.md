@@ -1,6 +1,14 @@
 # Keystone × Academic's Rainborn Patch
 
-## v1.1.3: Rainborn flag discovery fix\n\nThe original patch guessed `RainbornExcavationFlag` template names and consequently could not identify the flag spec on some installations. This revision resolves **all** excavation flag block specs using Rainborn's public `RainbornExcavationFlagSpec` marker through `ISpecService.GetSpecs<T>()` at game-scoped `Load()`, not `TemplateNameMapper` names or reflection. It preserves the existing guarded dynamite placement validation and unchanged excavation/Loose Dirt/natural-resource cleanup.\n\nExpected `Player.log`: `[TB-KS-AR] Placement parity active for N Rainborn excavation flag blueprint(s).` A zero-count warning means the integration is not active; it is not evidence of passing gameplay tests.\n\nManual validation: verify flag placement versus dynamite over supported terrain, unsupported edges and occupied cells, with Folktails and IronTeeth; excavate one block under Keystone decoration and check cleanup/Loose Dirt; save/reload; then test with T3MP and TB Optimizer. Compare with the original mod for cost/timing.\n\n## v1.1.2 refactor
+## v1.1.3: Rainborn flag discovery fix
+
+The original patch guessed `RainbornExcavationFlag` template names and consequently could not identify the flag spec on some installations. This revision resolves **all** excavation flag block specs using Rainborn's public `RainbornExcavationFlagSpec` marker through `ISpecService.GetSpecs<T>()` at game-scoped `Load()`, not `TemplateNameMapper` names or reflection. It preserves the existing guarded dynamite placement validation and unchanged excavation/Loose Dirt/natural-resource cleanup.
+
+Expected `Player.log`: `[TB-KS-AR] Placement parity active for N Rainborn excavation flag blueprint(s).` A zero-count warning means the integration is not active; it is not evidence of passing gameplay tests.
+
+Manual validation: verify flag placement versus dynamite over supported terrain, unsupported edges and occupied cells, with Folktails and IronTeeth; excavate one block under Keystone decoration and check cleanup/Loose Dirt; save/reload; then test with T3MP and TB Optimizer. Compare with the original mod for cost/timing.
+
+## v1.1.2 refactor
 
 The patch now uses typed Timberborn, Rainborn and Keystone APIs and a game-scoped Bindito service instead of capturing game service constructors with Harmony. A thread-local guard prevents recursive placement validation. Cleanup is guarded and limited to ground-dependent natural resources in the excavation column; the original Rainborn Loose Dirt handling is preserved.
 
